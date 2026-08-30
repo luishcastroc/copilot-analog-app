@@ -9,10 +9,10 @@ import { existsSync, readFileSync } from 'node:fs';
 /** Vendor API keys this scaffold needs before chat and generations will work. */
 const REQUIRED_ENV_KEYS = [
   {
-    "key": "GOOGLE_API_KEY",
-    "note": "Required by the ADK agents.",
-    "url": "https://aistudio.google.com/apikey",
-    "example": "AIza..."
+    "key": "OPENROUTER_API_KEY",
+    "note": "Required by the ADK agent (routed through OpenRouter via LiteLLM).",
+    "url": "https://openrouter.ai/settings/keys",
+    "example": "sk-or-..."
   }
 ];
 

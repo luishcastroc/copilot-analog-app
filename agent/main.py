@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.lite_llm import LiteLlm
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.tools import ToolContext
@@ -89,26 +90,20 @@ def before_model_modifier(
                 proverbs_json = f"Error serializing proverbs: {str(e)}"
         # --- Modification Example ---
         # Add a prefix to the system instruction
-        original_instruction = llm_request.config.system_instruction or types.Content(
-            role="system", parts=[]
-        )
         prefix = f"""You are a helpful assistant for maintaining a list of proverbs.
         This is the current state of the list of proverbs: {proverbs_json}
         When you modify the list of proverbs (whether to add, remove, or modify one or more proverbs), use the set_proverbs tool to update the list."""
-        # Ensure system_instruction is Content and parts list exists
-        if not isinstance(original_instruction, types.Content):
-            # Handle case where it might be a string (though config expects Content)
-            original_instruction = types.Content(
-                role="system", parts=[types.Part(text=str(original_instruction))]
+        # Keep system_instruction a plain string: the LiteLLM/OpenRouter path
+        # JSON-serializes it as a chat message, and a types.Content object there
+        # raises "Object of type Content is not JSON serializable".
+        original_instruction = llm_request.config.system_instruction
+        if isinstance(original_instruction, types.Content):
+            original_text = "".join(
+                part.text or "" for part in (original_instruction.parts or [])
             )
-        if not original_instruction.parts:
-            original_instruction.parts = [types.Part(text="")]
-
-        # Modify the text of the first part
-        if original_instruction.parts and len(original_instruction.parts) > 0:
-            modified_text = prefix + (original_instruction.parts[0].text or "")
-            original_instruction.parts[0].text = modified_text
-        llm_request.config.system_instruction = original_instruction
+        else:
+            original_text = str(original_instruction or "")
+        llm_request.config.system_instruction = prefix + original_text
 
     return None
 
@@ -138,7 +133,10 @@ def simple_after_model_modifier(
 
 proverbs_agent = LlmAgent(
     name="ProverbsAgent",
-    model="gemini-2.5-flash",
+    # Routed through OpenRouter via LiteLLM; needs OPENROUTER_API_KEY in .env.
+    # Free-tier model that supports tool calling; swap the id after
+    # "openrouter/" for any other model (paid ones need OpenRouter credits).
+    model=LiteLlm(model="openrouter/minimax/minimax-m3:free"),
     instruction="""
         When a user asks you to do anything regarding proverbs, you MUST use the set_proverbs tool.
 
@@ -201,10 +199,10 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    if not os.getenv("GOOGLE_API_KEY"):
-        print("⚠️  Warning: GOOGLE_API_KEY environment variable not set!")
-        print("   Set it with: export GOOGLE_API_KEY='your-key-here'")
-        print("   Get a key from: https://makersuite.google.com/app/apikey")
+    if not os.getenv("OPENROUTER_API_KEY"):
+        print("⚠️  Warning: OPENROUTER_API_KEY environment variable not set!")
+        print("   Add it to the project .env: OPENROUTER_API_KEY=sk-or-...")
+        print("   Get a key from: https://openrouter.ai/settings/keys")
         print()
 
     port = int(os.getenv("PORT", 8000))
