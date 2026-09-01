@@ -1,39 +1,127 @@
+/* CopilotKit component styles (chat, threads drawer, suggestions). Without
+   this import the cpk:* utility classes in the SDK's templates match nothing
+   and the chat renders unstyled. */
 @import "@copilotkit/angular/styles.css";
 
-/*
-  Global border-box reset. Without it, elements default to content-box, so a
-  width:100% element with padding (e.g. the proverbs card) overflows its parent
-  and gets clipped on narrow screens. React/Next examples get this from their
-  Tailwind preflight; the Angular app needs it explicitly.
-*/
-*,
-*::before,
-*::after {
+/* ——— Sacbé design tokens ———
+   limestone canvas · jungle-ink text · cenote accent · sun-amber markers */
+:root {
+  --limestone: #f1f0e8;
+  --paper: #fbfaf6;
+  --stone: #d9d7cb;
+  --ink: #20281f;
+  --ink-soft: #6b7265;
+  /* Brand color. Deliberately NOT named --accent: CopilotKit's chat and
+     threads drawer read a shadcn-style --accent as a subtle SURFACE color
+     (hover/active backgrounds), and custom properties pierce shadow DOM —
+     a saturated brand value there paints solid teal active rows. */
+  --cenote: #0e8c8c;
+  --sun: #d99a2b;
+  --danger: #b4453c;
+
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Helvetica Neue",
+    sans-serif;
+  --font-body: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+
+  /* ——— CopilotKit theme contract (shadcn-semantic tokens the SDK's chat and
+     threads drawer consume). Defined ON PURPOSE with surface/foreground
+     semantics so the SDK components pick up Sacbé's look coherently. */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --muted: var(--limestone);
+  --muted-foreground: var(--ink-soft);
+  --accent: color-mix(in srgb, var(--cenote) 10%, var(--paper));
+  --accent-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --destructive: var(--danger);
+  --border: var(--stone);
+  --ring: var(--cenote);
+  --radius: 12px;
+
+  /* Threads drawer extras (its own namespaced hooks) */
+  --cpk-drawer-bg: var(--limestone);
+  --cpk-drawer-fg: var(--ink);
+  --cpk-drawer-indicator: var(--sun);
+  --cpk-drawer-font-family: var(--font-body);
+}
+
+* {
   box-sizing: border-box;
 }
 
 html,
 body {
   height: 100%;
+}
+
+body {
   margin: 0;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--limestone);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus ring for the planner's own controls. Scoped away from CopilotKit
+   subtrees: the SDK's styles live in CSS @layer, so an unlayered global rule
+   like this one would override its intentional outline-none (e.g. the chat
+   textarea) and draw hard rings the SDK never meant to show — it manages its
+   own focus treatment. */
+:focus-visible {
+  outline: 2px solid var(--cenote);
+  outline-offset: 2px;
+}
+copilot-chat :focus-visible,
+copilot-threads-drawer :focus-visible,
+[data-copilotkit] :focus-visible {
+  outline: none;
 }
 
 /*
-  Move the built-in web inspector's FAB to the bottom-left. Its default top-right
-  anchor sits on top of the floating chat panel's top-right close button (the
-  inspector uses a max z-index), intercepting the click. Bottom-left clears both
-  the close button (top-right) and the open-chat FAB (bottom-right).
+  Two SDK-chat fixes scoped to our slide-over panel (unlayered rules
+  deliberately outrank the SDK's @layer styles here):
+  1. The chat's scroll region hardcodes height calc(100vh - 9rem), assuming
+     it owns the full viewport — our panel adds a ~53px header above it, so
+     the region overflowed and the last message hid behind the input. Inside
+     a properly flex-sized parent, 100% is the correct height.
+  2. The bottom "feather" fade hardcodes white; our panel background is
+     --paper, which left a visible off-white band. Fade to the real surface.
+*/
+.chat copilot-chat-view-scroll-view > div:first-of-type {
+  height: 100%;
+}
+/* 3. The input + disclaimer float OVER the messages (absolute, ~150px tall),
+   and the SDK's dynamic bottom padding on the message list doesn't account
+   for them in an embedded panel — the conversation's tail hid underneath.
+   Pad the scroll container itself (the inline-styled spacer div is left
+   alone) so the last message can scroll fully clear of the input. */
+.chat copilot-chat-view-scroll-view [copilotsticktobottom] {
+  padding-bottom: 10rem;
+}
+.chat copilot-chat-view-feather > div {
+  background: linear-gradient(
+    to top,
+    var(--paper) 0%,
+    color-mix(in srgb, var(--paper) 70%, transparent) 60%,
+    transparent 100%
+  );
+}
+
+/*
+  Move the built-in web inspector's FAB to the bottom-left. Its default
+  top-right anchor sits on top of the floating chat panel's close button (the
+  inspector uses a max z-index), intercepting the click. Bottom-left clears
+  both the close button (top-right) and the open-chat FAB (bottom-right).
 */
 cpk-web-inspector {
-  /* The inspector is draggable and positions its FAB with an inline transform
-     (defaulting top-right); neutralize it so the corner below takes effect. */
   transform: none !important;
   top: auto !important;
   bottom: 1rem !important;
   left: 1rem !important;
   right: auto !important;
-}
-
-body {
-  font-family: Arial, Helvetica, sans-serif;
 }

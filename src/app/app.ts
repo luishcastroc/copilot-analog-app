@@ -1,13 +1,17 @@
-import { Component, signal } from "@angular/core";
+import { Component, effect, signal } from "@angular/core";
 import {
   CopilotChat,
   CopilotThreadsDrawer,
+  injectChatConfiguration,
+  injectThreads,
   registerFrontendTool,
 } from "@copilotkit/angular";
 import { LucideAngularModule, MessageCircle, X } from "lucide-angular";
 import { z } from "zod";
-import { AGENT_ID } from "./app.config";
-import { MainContent } from "./main-content";
+import { AGENT_ID } from "./constants";
+import { consumeRestoredThreadId } from "./i18n";
+import { removeStoredTrip } from "./trip/application/features/with-trip";
+import { MainContent } from "./trip/ui/main-content";
 
 /**
  * Viewport width (px) at/above which an open chat DOCKS and pushes the content
@@ -32,11 +36,28 @@ const DOCK_BREAKPOINT_PX = 1200;
   // fixed-positioned descendants). We deliberately do NOT reuse
   // --copilot-kit-primary-color: the chat re-declares that token on its own
   // [data-copilotkit] hosts, which would shadow the value set here.
-  host: { "[style.--app-theme-color]": "themeColor()" },
+  host: {
+    "[style.--app-theme-color]": "themeColor()",
+    // Same value doubles as the design system's brand token so the agent's
+    // setThemeColor recolors day markers, glyphs, and gradients everywhere.
+    // Named --cenote, NOT --accent: the CopilotKit chat and threads drawer
+    // read a shadcn-style --accent as a subtle SURFACE color, so a saturated
+    // brand value there paints solid teal active rows in the drawer.
+    "[style.--cenote]": "themeColor()",
+  },
   template: `
     <div class="layout" [class.layout--pushed]="chatOpen()">
-      <!-- License-gated: locked "Upgrade" tease when unlicensed, threads when licensed. -->
-      <copilot-threads-drawer [agentId]="AGENT_ID" class="drawer" />
+      <!-- License-gated: locked "Upgrade" tease when unlicensed, threads when
+           licensed. The (delete) binding catches the web component's bubbling
+           CustomEvent: the SDK only resets the active chat when the SERVER
+           delete succeeds, and with a placeholder identity those deletes can
+           404 — leaving the conversation silently alive. We reset
+           unconditionally and drop that conversation's stored board. -->
+      <copilot-threads-drawer
+        [agentId]="AGENT_ID"
+        class="drawer"
+        (delete)="onThreadDelete($any($event))"
+      />
       <app-main-content [themeColor]="themeColor()" class="center" />
     </div>
 
@@ -56,12 +77,12 @@ const DOCK_BREAKPOINT_PX = 1200;
       aria-label="Assistant"
     >
       <header class="chat__bar">
-        <span>Assistant</span>
+        <span>{{ labels.title }}</span>
         <button
           type="button"
           class="chat__close"
           (click)="chatOpen.set(false)"
-          aria-label="Close chat"
+          [attr.aria-label]="labels.close"
         >
           <lucide-angular [img]="CloseIcon" [size]="20" />
         </button>
@@ -77,7 +98,7 @@ const DOCK_BREAKPOINT_PX = 1200;
       type="button"
       class="chat-fab"
       (click)="chatOpen.set(!chatOpen())"
-      [attr.aria-label]="chatOpen() ? 'Close chat' : 'Open chat'"
+      [attr.aria-label]="chatOpen() ? labels.close : labels.open"
     >
       <lucide-angular [img]="ChatIcon" [size]="24" />
     </button>
@@ -123,9 +144,9 @@ const DOCK_BREAKPOINT_PX = 1200;
         width: min(var(--chat-width), 100%);
         display: flex;
         flex-direction: column;
-        background: #fff;
-        border-left: 1px solid rgba(0, 0, 0, 0.08);
-        box-shadow: -12px 0 32px rgba(0, 0, 0, 0.12);
+        background: var(--paper, #fff);
+        border-left: 1px solid var(--stone, rgba(0, 0, 0, 0.08));
+        box-shadow: -12px 0 32px rgba(30, 40, 31, 0.12);
         transform: translateX(100%);
         transition: transform 0.25s ease;
       }
@@ -139,9 +160,11 @@ const DOCK_BREAKPOINT_PX = 1200;
         align-items: center;
         justify-content: space-between;
         padding: 1rem;
-        border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-        font-weight: 600;
+        border-bottom: 1px solid var(--stone, rgba(0, 0, 0, 0.1));
+        font-family: var(--font-display, inherit);
+        font-weight: 700;
         font-size: 0.95rem;
+        color: var(--ink, #171717);
       }
       .chat__close {
         display: inline-flex;
@@ -176,8 +199,8 @@ const DOCK_BREAKPOINT_PX = 1200;
         width: 3.5rem;
         border-radius: 9999px;
         border: 0;
-        background: #171717;
-        color: #fff;
+        background: var(--ink, #171717);
+        color: var(--paper, #fff);
         cursor: pointer;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
         transition:
@@ -203,7 +226,12 @@ const DOCK_BREAKPOINT_PX = 1200;
 })
 export class App {
   protected readonly AGENT_ID = AGENT_ID;
-  protected readonly themeColor = signal("#6366f1");
+  protected readonly themeColor = signal("#0e8c8c");
+  protected readonly labels = {
+    title: $localize`:@@chat.title:Sacbé assistant`,
+    close: $localize`:@@chat.close:Close chat`,
+    open: $localize`:@@chat.open:Open chat`,
+  };
   /** Start expanded only when there's room to dock (wide viewport); on narrow
    *  screens start closed so the overlay doesn't cover the content on load. */
   protected readonly chatOpen = signal(
@@ -214,16 +242,90 @@ export class App {
   /** lucide icons matching React's sidebar (X for close, MessageCircle to open). */
   protected readonly CloseIcon = X;
   protected readonly ChatIcon = MessageCircle;
+  readonly #chatConfig = injectChatConfiguration();
+  readonly #threads = injectThreads({ agentId: AGENT_ID });
+  /**
+   * Conversation we'd LIKE to restore — the ?thread= deep link, else the
+   * language-switch stash. Read in a field initializer so it's captured
+   * before the URL-sync effect below overwrites the query string with the
+   * freshly minted thread id. Only activated once verified (see constructor).
+   */
+  readonly #wantedThreadId: string | null =
+    (typeof location !== "undefined"
+      ? new URL(location.href).searchParams.get("thread")
+      : null) ?? consumeRestoredThreadId() ?? null;
+
+  protected onThreadDelete(event: CustomEvent<{ threadId: string }>): void {
+    const threadId = event?.detail?.threadId;
+    if (!threadId) return;
+    removeStoredTrip(threadId);
+    if (threadId === this.#chatConfig.threadId()) {
+      this.#chatConfig.startNewThread();
+    }
+  }
+
   constructor() {
-    // 🪁 Frontend tool: recolor the center panel (and, via --app-theme-color on
-    // the host, the generative-UI weather card in the chat).
+    // Thread lifecycle, in one effect:
+    //
+    // 1. VERIFIED RESTORE — the session always starts on a freshly minted,
+    //    guaranteed-usable id. A remembered conversation (deep link or
+    //    language-switch stash) is activated only once it's confirmed present
+    //    in the loaded list. This is what keeps a soft-deleted thread from
+    //    poisoning the session: its id 404s on read and 409s on re-create, so
+    //    every run would fail — and it never appears in the list, so we never
+    //    activate it.
+    // 2. VANISHED ACTIVE THREAD — an id that WAS listed and no longer is,
+    //    while active, was deleted (here or in another tab): start fresh.
+    //    Freshly minted threads were never listed, so they can't false-trigger.
+    let restoreSettled = false;
+    let knownThreadIds = new Set<string>();
+    effect(() => {
+      const ids = new Set(this.#threads.threads().map((t) => t.id));
+      const active = this.#chatConfig.threadId();
+      const listReady =
+        !this.#threads.isLoading() && this.#threads.listError() === null;
+
+      if (!restoreSettled && listReady) {
+        restoreSettled = true;
+        const wanted = this.#wantedThreadId;
+        if (wanted && wanted !== active && ids.has(wanted)) {
+          this.#chatConfig.setActiveThreadId(wanted);
+        }
+      }
+
+      if (knownThreadIds.has(active) && !ids.has(active)) {
+        this.#chatConfig.startNewThread();
+      }
+      knownThreadIds = ids;
+    });
+
+    // Keep the active conversation in the URL (?thread=<id>) so every thread
+    // has a shareable, refresh-safe address — clicking a thread in the
+    // drawer updates it, and the verified restore above reads it on load.
+    // replaceState, not pushState: with no router, polluting history with
+    // back-button entries that don't navigate would mislead.
+    effect(() => {
+      const threadId = this.#chatConfig.threadId();
+      if (typeof location === "undefined" || !threadId) return;
+      const url = new URL(location.href);
+      if (url.searchParams.get("thread") !== threadId) {
+        url.searchParams.set("thread", threadId);
+        history.replaceState(null, "", url);
+      }
+    });
+
+    // 🪁 Frontend tool: recolor the planner's accent (day markers, glyphs,
+    // and — via --app-theme-color on the host — the weather card in the chat).
     registerFrontendTool({
       name: "setThemeColor",
-      description: "Set the theme color of the page.",
+      description:
+        "Set the accent color of the trip planner UI. Use when the user asks to change the look or match a mood.",
       parameters: z.object({
         themeColor: z
           .string()
-          .describe("The theme color to set. Make sure to pick nice colors."),
+          .describe(
+            "CSS color for the accent. Pick calm, saturated colors that read on a pale background.",
+          ),
       }),
       handler: async ({ themeColor }) => {
         this.themeColor.set(themeColor);
