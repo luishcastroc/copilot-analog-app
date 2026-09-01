@@ -18,8 +18,16 @@ First confirm that this machine has Node.js 22+, Git/network access, and an
 OpenRouter key available. Do not ask me to paste secrets into chat — tell me
 which line of .env each key goes on and I'll add it myself.
 
-Scaffold a fresh Analog app with npm create analog@latest --name <ask me for
-the name>, client-rendered since the CopilotKit components aren't SSR-safe.
+Use pnpm 12 throughout: scaffold a fresh Analog app (pnpm create analog
+--name <ask me for the name>), then pin it with packageManager in
+package.json so corepack takes over. Put project settings in
+pnpm-workspace.yaml — pnpm 12 no longer reads the "pnpm" field in
+package.json or most .npmrc keys — including strictPeerDependencies: false
+(Angular 21 next to peers reaching for 22), the version overrides below, and
+an allowBuilds map approving esbuild, lmdb, msgpackr-extract and
+@parcel/watcher, since pnpm blocks dependency build scripts by default and
+Vite won't run without esbuild's binary. Make the app client-rendered, since
+the CopilotKit components aren't SSR-safe.
 Before wiring anything, fix Analog's starter config: put "browser" first in
 resolve.mainFields and shim window.process in index.html before the module
 script, or CopilotKit's browser bundles crash on Node globals — and never
@@ -37,7 +45,8 @@ Install @copilotkit/angular with matching runtime/core/shared versions and
 @openrouter/ai-sdk-provider@2 — the 3.x line needs ai v7 and won't resolve
 against the runtime's bundled ai v6. Pin rxjs to a single version in both
 dependencies and overrides, or @ag-ui/client's exact pin duplicates it and
-breaks Observable typing. The global stylesheet MUST start with @import
+breaks Observable typing; pin the @ag-ui/* and @copilotkit/* packages to one
+version each for the same reason. The global stylesheet MUST start with @import
 "@copilotkit/angular/styles.css" — without it the chat renders unstyled —
 and because the SDK's CSS lives in @layer, any unlayered global rule you
 write (a focus outline, for example) silently overrides it: scope such

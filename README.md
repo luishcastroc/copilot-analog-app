@@ -4,7 +4,7 @@ This is a starter for building AI agents with [CopilotKit](https://copilotkit.ai
 
 ## Architecture
 
-One process, started by `npm run dev` (Vite):
+One process, started by `pnpm dev` (Vite):
 
 | Piece            | Where it lives                                    | What it is                                                              |
 | ---------------- | ------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -32,6 +32,7 @@ The prompt also forbids claiming a change without a successful tool call, and `t
 ## Prerequisites
 
 - Node.js 22+
+- pnpm 12 — the repo pins it via `packageManager`, so `corepack enable pnpm` is enough (Corepack ships with Node)
 - An [OpenRouter API key](https://openrouter.ai/settings/keys)
 
 ## Getting Started
@@ -39,7 +40,7 @@ The prompt also forbids claiming a change without a successful tool call, and `t
 1. Install dependencies:
 
    ```bash
-   npm install
+   pnpm install
    ```
 
 2. Configure your environment. Copy `.env.example` to `.env` and set your OpenRouter key:
@@ -54,7 +55,7 @@ The prompt also forbids claiming a change without a successful tool call, and `t
 3. Start the dev server:
 
    ```bash
-   npm run dev
+   pnpm dev
    ```
 
    Then open http://localhost:5173 (Vite picks the next port if 5173 is busy — check the terminal output).
@@ -67,6 +68,13 @@ The prompt also forbids claiming a change without a successful tool call, and `t
 - `preview` — serve the production build locally
 
 (There is no test script yet — see *Using AnalogJS* below.)
+
+### pnpm notes
+
+Project settings live in `pnpm-workspace.yaml`, not `package.json` or `.npmrc` — pnpm 12 no longer reads the `pnpm` field or most npmrc keys. Two settings there are load-bearing:
+
+- **`overrides`** pins one `rxjs` and one `@ag-ui/*` / `@copilotkit/*` version across the tree. A duplicate `rxjs` makes the agent middleware's `Observable` types unassignable; mismatched `@ag-ui` versions break the protocol types.
+- **`allowBuilds`** approves the four dependencies that must compile or fetch native artifacts (esbuild, lmdb, msgpackr-extract, @parcel/watcher). pnpm blocks dependency build scripts by default; `@scarf/scarf` is install analytics and is denied on purpose.
 
 ## What's in here
 
@@ -105,7 +113,7 @@ When the platform deletes a thread it keeps the row: the id then returns `404` o
 What this app uses, and what it deliberately doesn't:
 
 - **Nitro server routes** (`src/server/routes/`) — yes, this is the whole point: the Copilot Runtime, the agent, and the API keys live in the same process as the UI.
-- **Vite dev server + build** — yes; `npm run dev` is a single process, and `vite build` emits both the client bundle and a deployable Nitro server (`dist/analog`).
+- **Vite dev server + build** — yes; `pnpm dev` is a single process, and `vite build` emits both the client bundle and a deployable Nitro server (`dist/analog`).
 - **SSR / prerendering** — deliberately off (`ssr: false`). The CopilotKit chat components are not SSR-safe, and the app is behind an interaction anyway.
 - **File-based routing** (`@analogjs/router`) — not used. The app is a single view; the active conversation is carried in `?thread=` instead of a route. Promoting that to `/thread/:id` is the natural first step if more pages appear.
 - **Vitest integration** — **not set up yet, and the clearest gap.** Analog ships a first-class Vitest configuration, and the logic that most deserves tests is already pure and isolated: `resolveClearTarget`, the intent classifier's parsing, `trip.factory`'s id generation, and the store's `withTrip` methods.

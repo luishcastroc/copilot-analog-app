@@ -1,0 +1,35 @@
+# pnpm 12 reads project settings from here — the "pnpm" field in
+# package.json and most .npmrc keys are no longer read.
+# https://pnpm.io/settings
+
+# Angular 21 sits alongside packages whose peer ranges reach for 22 (and
+# lucide-angular's stops at 21): warn, don't fail — the pnpm equivalent of
+# the --legacy-peer-deps this project needed under npm.
+strictPeerDependencies: false
+autoInstallPeers: true
+
+# Load-bearing pins: ONE rxjs across the tree (a duplicate breaks Observable
+# typing in the agent middleware) and one @ag-ui/* + @copilotkit/* version
+# (the SDK and runtime must agree on the AG-UI protocol types).
+overrides:
+  '@ag-ui/client': 0.0.58
+  '@ag-ui/core': 0.0.58
+  '@ag-ui/encoder': 0.0.58
+  '@ag-ui/proto': 0.0.58
+  '@copilotkit/a2ui-renderer': 1.68.1
+  '@copilotkit/core': 1.68.1
+  '@copilotkit/shared': 1.68.1
+  '@copilotkit/web-components': 1.68.1
+  'lucide-angular': ^0.577.0
+  'rxjs': ^7.8.2
+
+# pnpm blocks dependency build scripts by default. These four need to
+# compile or fetch native artifacts (esbuild's binary powers Vite;
+# lmdb/msgpackr back Angular's persistent build cache; @parcel/watcher is
+# the native file watcher). @scarf/scarf is install analytics — denied.
+allowBuilds:
+  "@parcel/watcher": true
+  esbuild: true
+  lmdb: true
+  msgpackr-extract: true
+  "@scarf/scarf": false
